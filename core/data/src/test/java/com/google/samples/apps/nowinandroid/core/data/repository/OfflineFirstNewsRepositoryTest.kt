@@ -83,7 +83,12 @@ class OfflineFirstNewsRepositoryTest {
                 newsResourceDao.getNewsResources()
                     .first()
                     .map(PopulatedNewsResource::asExternalModel),
-                subject.getNewsResources()
+                subject.getNewsResources(
+                    NewsResourceQuery(
+                        offset = 0,
+                        limit = Int.MAX_VALUE
+                    )
+                )
                     .first()
             )
         }
@@ -93,12 +98,18 @@ class OfflineFirstNewsRepositoryTest {
         runTest {
             assertEquals(
                 newsResourceDao.getNewsResources(
+                    offset = 0,
+                    limit = Int.MAX_VALUE,
                     filterTopicIds = filteredInterestsIds,
                 )
                     .first()
                     .map(PopulatedNewsResource::asExternalModel),
                 subject.getNewsResources(
-                    filterTopicIds = filteredInterestsIds,
+                    NewsResourceQuery(
+                        offset = 0,
+                        limit = Int.MAX_VALUE,
+                        filterTopicIds = filteredInterestsIds,
+                    )
                 )
                     .first()
             )
@@ -106,7 +117,11 @@ class OfflineFirstNewsRepositoryTest {
             assertEquals(
                 emptyList(),
                 subject.getNewsResources(
-                    filterTopicIds = nonPresentInterestsIds,
+                    NewsResourceQuery(
+                        offset = 0,
+                        limit = Int.MAX_VALUE,
+                        filterTopicIds = nonPresentInterestsIds,
+                    )
                 )
                     .first()
             )

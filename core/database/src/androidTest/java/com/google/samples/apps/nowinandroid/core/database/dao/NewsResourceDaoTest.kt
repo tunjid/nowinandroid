@@ -85,6 +85,44 @@ class NewsResourceDaoTest {
     }
 
     @Test
+    fun newsResourceDao_fetches_items_by_descending_publish_date_wit_limit_and_offset() = runTest {
+        val newsResourceEntities = listOf(
+            testNewsResource(
+                id = "0",
+                millisSinceEpoch = 0,
+            ),
+            testNewsResource(
+                id = "1",
+                millisSinceEpoch = 3,
+            ),
+            testNewsResource(
+                id = "2",
+                millisSinceEpoch = 1,
+            ),
+            testNewsResource(
+                id = "3",
+                millisSinceEpoch = 2,
+            ),
+        )
+        newsResourceDao.upsertNewsResources(
+            newsResourceEntities
+        )
+
+        val savedNewsResourceEntities = newsResourceDao.getNewsResources(
+            offset = 1,
+            limit = 2,
+        )
+            .first()
+
+        assertEquals(
+            listOf(2L, 1L),
+            savedNewsResourceEntities.map {
+                it.asExternalModel().publishDate.toEpochMilliseconds()
+            }
+        )
+    }
+
+    @Test
     fun newsResourceDao_filters_items_by_topic_ids_by_descending_publish_date() = runTest {
         val topicEntities = listOf(
             testTopicEntity(

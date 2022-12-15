@@ -18,18 +18,16 @@ package com.google.samples.apps.nowinandroid.feature.bookmarks
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.samples.apps.nowinandroid.core.data.repository.NewsResourceQuery
 import com.google.samples.apps.nowinandroid.core.data.repository.UserDataRepository
 import com.google.samples.apps.nowinandroid.core.domain.GetSaveableNewsResourcesUseCase
 import com.google.samples.apps.nowinandroid.core.domain.model.SaveableNewsResource
-import com.google.samples.apps.nowinandroid.core.ui.NewsFeedUiState
-import com.google.samples.apps.nowinandroid.core.ui.NewsFeedUiState.Loading
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.filterNot
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -39,15 +37,20 @@ class BookmarksViewModel @Inject constructor(
     getSaveableNewsResources: GetSaveableNewsResourcesUseCase
 ) : ViewModel() {
 
-    val feedUiState: StateFlow<NewsFeedUiState> = getSaveableNewsResources()
+    // TODO: Load this in tiles
+    val bookmarkItems: StateFlow<List<BookmarkItem>> = getSaveableNewsResources(
+        NewsResourceQuery(
+            offset = 0,
+            limit = Int.MAX_VALUE
+        )
+    )
         .filterNot { it.isEmpty() }
         .map { newsResources -> newsResources.filter(SaveableNewsResource::isSaved) } // Only show bookmarked news resources.
-        .map<List<SaveableNewsResource>, NewsFeedUiState>(NewsFeedUiState::Success)
-        .onStart { emit(Loading) }
+        .map<List<SaveableNewsResource>, List<BookmarkItem>> { it.map(BookmarkItem::News) }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
-            initialValue = Loading
+            initialValue = listOf(BookmarkItem.Loading)
         )
 
     fun removeFromSavedResources(newsResourceId: String) {

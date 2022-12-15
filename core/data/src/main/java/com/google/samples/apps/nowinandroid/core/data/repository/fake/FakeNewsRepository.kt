@@ -19,6 +19,7 @@ package com.google.samples.apps.nowinandroid.core.data.repository.fake
 import com.google.samples.apps.nowinandroid.core.data.Synchronizer
 import com.google.samples.apps.nowinandroid.core.data.model.asEntity
 import com.google.samples.apps.nowinandroid.core.data.repository.NewsRepository
+import com.google.samples.apps.nowinandroid.core.data.repository.NewsResourceQuery
 import com.google.samples.apps.nowinandroid.core.database.model.NewsResourceEntity
 import com.google.samples.apps.nowinandroid.core.database.model.asExternalModel
 import com.google.samples.apps.nowinandroid.core.model.data.NewsResource
@@ -42,26 +43,21 @@ class FakeNewsRepository @Inject constructor(
     @Dispatcher(IO) private val ioDispatcher: CoroutineDispatcher,
     private val datasource: FakeNiaNetworkDataSource
 ) : NewsRepository {
-
-    override fun getNewsResources(): Flow<List<NewsResource>> =
-        flow {
-            emit(
-                datasource.getNewsResources()
-                    .map(NetworkNewsResource::asEntity)
-                    .map(NewsResourceEntity::asExternalModel)
-            )
-        }.flowOn(ioDispatcher)
-
-    override fun getNewsResources(
-        filterTopicIds: Set<String>,
-    ): Flow<List<NewsResource>> =
+    override fun getNewsResources(query: NewsResourceQuery): Flow<List<NewsResource>> =
         flow {
             emit(
                 datasource
                     .getNewsResources()
-                    .filter { it.topics.intersect(filterTopicIds).isNotEmpty() }
+                    .let { newsResources ->
+                        if (query.filterTopicIds.isEmpty()) newsResources
+                        else newsResources.filter {
+                            it.topics.intersect(query.filterTopicIds).isNotEmpty()
+                        }
+                    }
                     .map(NetworkNewsResource::asEntity)
                     .map(NewsResourceEntity::asExternalModel)
+                    .drop(query.offset)
+                    .take(query.limit)
 
             )
         }.flowOn(ioDispatcher)

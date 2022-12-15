@@ -16,6 +16,7 @@
 
 package com.google.samples.apps.nowinandroid.core.domain
 
+import com.google.samples.apps.nowinandroid.core.data.repository.NewsResourceQuery
 import com.google.samples.apps.nowinandroid.core.domain.model.SaveableNewsResource
 import com.google.samples.apps.nowinandroid.core.model.data.NewsResource
 import com.google.samples.apps.nowinandroid.core.model.data.NewsResourceType.Video
@@ -44,7 +45,7 @@ class GetSaveableNewsResourcesUseCaseTest {
     fun whenNoFilters_allNewsResourcesAreReturned() = runTest {
 
         // Obtain the saveable news resources stream.
-        val saveableNewsResources = useCase()
+        val saveableNewsResources = useCase(NewsResourceQuery(limit = Int.MAX_VALUE))
 
         // Send some news resources and bookmarks.
         newsRepository.sendNewsResources(sampleNewsResources)
@@ -67,7 +68,12 @@ class GetSaveableNewsResourcesUseCaseTest {
     fun whenFilteredByTopicId_matchingNewsResourcesAreReturned() = runTest {
 
         // Obtain a stream of saveable news resources for the given topic id.
-        val saveableNewsResources = useCase(filterTopicIds = setOf(sampleTopic1.id))
+        val saveableNewsResources = useCase(
+            NewsResourceQuery(
+                filterTopicIds = setOf(sampleTopic1.id),
+                limit = Int.MAX_VALUE
+            )
+        )
 
         // Send some news resources and bookmarks.
         newsRepository.sendNewsResources(sampleNewsResources)

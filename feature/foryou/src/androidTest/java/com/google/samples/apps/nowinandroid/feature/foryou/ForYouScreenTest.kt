@@ -28,11 +28,13 @@ import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performScrollToNode
+import com.google.samples.apps.nowinandroid.core.data.repository.NewsResourceQuery
 import com.google.samples.apps.nowinandroid.core.domain.model.FollowableTopic
 import com.google.samples.apps.nowinandroid.core.domain.model.SaveableNewsResource
 import com.google.samples.apps.nowinandroid.core.model.data.Topic
 import com.google.samples.apps.nowinandroid.core.model.data.previewNewsResources
-import com.google.samples.apps.nowinandroid.core.ui.NewsFeedUiState
+import com.google.samples.apps.nowinandroid.feature.foryou.ForYouItem.News.Loaded
+import com.tunjid.tiler.tiledListOf
 import org.junit.Rule
 import org.junit.Test
 
@@ -52,9 +54,14 @@ class ForYouScreenTest {
             BoxWithConstraints {
                 ForYouScreen(
                     isSyncing = false,
-                    onboardingUiState = OnboardingUiState.Loading,
-                    feedState = NewsFeedUiState.Loading,
+                    forYouItems = tiledListOf(
+                        NewsResourceQuery(
+                            offset = 0,
+                            limit = ITEMS_PER_QUERY,
+                        ) to ForYouItem.OnBoarding(OnboardingUiState.Loading)
+                    ),
                     onTopicCheckedChanged = { _, _ -> },
+                    onGridSpanChanged = {},
                     saveFollowedTopics = {},
                     onNewsResourcesCheckedChanged = { _, _ -> }
                 )
@@ -74,9 +81,9 @@ class ForYouScreenTest {
             BoxWithConstraints {
                 ForYouScreen(
                     isSyncing = true,
-                    onboardingUiState = OnboardingUiState.NotShown,
-                    feedState = NewsFeedUiState.Success(emptyList()),
+                    forYouItems = emptyList(),
                     onTopicCheckedChanged = { _, _ -> },
+                    onGridSpanChanged = {},
                     saveFollowedTopics = {},
                     onNewsResourcesCheckedChanged = { _, _ -> }
                 )
@@ -96,14 +103,15 @@ class ForYouScreenTest {
             BoxWithConstraints {
                 ForYouScreen(
                     isSyncing = false,
-                    onboardingUiState =
-                    OnboardingUiState.Shown(
-                        topics = testTopics,
-                    ),
-                    feedState = NewsFeedUiState.Success(
-                        feed = emptyList()
+                    forYouItems = listOf(
+                        ForYouItem.OnBoarding(
+                            OnboardingUiState.Shown(
+                                topics = testTopics,
+                            )
+                        )
                     ),
                     onTopicCheckedChanged = { _, _ -> },
+                    onGridSpanChanged = {},
                     saveFollowedTopics = {},
                     onNewsResourcesCheckedChanged = { _, _ -> }
                 )
@@ -136,17 +144,18 @@ class ForYouScreenTest {
             BoxWithConstraints {
                 ForYouScreen(
                     isSyncing = false,
-                    onboardingUiState =
-                    OnboardingUiState.Shown(
-                        // Follow one topic
-                        topics = testTopics.mapIndexed { index, testTopic ->
-                            testTopic.copy(isFollowed = index == 1)
-                        }
-                    ),
-                    feedState = NewsFeedUiState.Success(
-                        feed = emptyList()
+                    forYouItems = listOf(
+                        ForYouItem.OnBoarding(
+                            OnboardingUiState.Shown(
+                                // Follow one topic
+                                topics = testTopics.mapIndexed { index, testTopic ->
+                                    testTopic.copy(isFollowed = index == 1)
+                                }
+                            )
+                        )
                     ),
                     onTopicCheckedChanged = { _, _ -> },
+                    onGridSpanChanged = {},
                     saveFollowedTopics = {},
                     onNewsResourcesCheckedChanged = { _, _ -> }
                 )
@@ -179,10 +188,16 @@ class ForYouScreenTest {
             BoxWithConstraints {
                 ForYouScreen(
                     isSyncing = false,
-                    onboardingUiState =
-                    OnboardingUiState.Shown(topics = testTopics),
-                    feedState = NewsFeedUiState.Loading,
+                    forYouItems = listOf(
+                        ForYouItem.OnBoarding(
+                            OnboardingUiState.Shown(
+                                topics = testTopics
+                            )
+                        ),
+                        ForYouItem.News.Loading
+                    ),
                     onTopicCheckedChanged = { _, _ -> },
+                    onGridSpanChanged = {},
                     saveFollowedTopics = {},
                     onNewsResourcesCheckedChanged = { _, _ -> }
                 )
@@ -202,9 +217,9 @@ class ForYouScreenTest {
             BoxWithConstraints {
                 ForYouScreen(
                     isSyncing = false,
-                    onboardingUiState = OnboardingUiState.NotShown,
-                    feedState = NewsFeedUiState.Loading,
+                    forYouItems = listOf(ForYouItem.News.Loading),
                     onTopicCheckedChanged = { _, _ -> },
+                    onGridSpanChanged = {},
                     saveFollowedTopics = {},
                     onNewsResourcesCheckedChanged = { _, _ -> }
                 )
@@ -223,13 +238,11 @@ class ForYouScreenTest {
         composeTestRule.setContent {
             ForYouScreen(
                 isSyncing = false,
-                onboardingUiState = OnboardingUiState.NotShown,
-                feedState = NewsFeedUiState.Success(
-                    feed = previewNewsResources.map {
-                        SaveableNewsResource(it, false)
-                    }
-                ),
+                forYouItems = previewNewsResources.map {
+                    Loaded(SaveableNewsResource(it, false))
+                },
                 onTopicCheckedChanged = { _, _ -> },
+                onGridSpanChanged = {},
                 saveFollowedTopics = {},
                 onNewsResourcesCheckedChanged = { _, _ -> }
             )

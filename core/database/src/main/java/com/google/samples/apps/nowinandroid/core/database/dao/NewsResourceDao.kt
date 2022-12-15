@@ -39,9 +39,14 @@ interface NewsResourceDao {
         value = """
             SELECT * FROM news_resources
             ORDER BY publish_date DESC
+            LIMIT :limit
+            OFFSET :offset
     """
     )
-    fun getNewsResources(): Flow<List<PopulatedNewsResource>>
+    fun getNewsResources(
+        offset: Int = 0,
+        limit: Int = Int.MAX_VALUE,
+    ): Flow<List<PopulatedNewsResource>>
 
     @Transaction
     @Query(
@@ -53,9 +58,13 @@ interface NewsResourceDao {
                 WHERE topic_id IN (:filterTopicIds)
             )
             ORDER BY publish_date DESC
+            LIMIT :limit
+            OFFSET :offset
     """
     )
     fun getNewsResources(
+        offset: Int = 0,
+        limit: Int = Int.MAX_VALUE,
         filterTopicIds: Set<String> = emptySet(),
     ): Flow<List<PopulatedNewsResource>>
 

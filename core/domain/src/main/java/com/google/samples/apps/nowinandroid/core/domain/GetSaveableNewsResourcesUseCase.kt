@@ -17,6 +17,7 @@
 package com.google.samples.apps.nowinandroid.core.domain
 
 import com.google.samples.apps.nowinandroid.core.data.repository.NewsRepository
+import com.google.samples.apps.nowinandroid.core.data.repository.NewsResourceQuery
 import com.google.samples.apps.nowinandroid.core.data.repository.UserDataRepository
 import com.google.samples.apps.nowinandroid.core.domain.model.SaveableNewsResource
 import com.google.samples.apps.nowinandroid.core.model.data.NewsResource
@@ -42,17 +43,13 @@ class GetSaveableNewsResourcesUseCase @Inject constructor(
     /**
      * Returns a list of SaveableNewsResources which match the supplied set of topic ids.
      *
-     * @param filterTopicIds - A set of topic ids used to filter the list of news resources. If
-     * this is empty the list of news resources will not be filtered.
+     * @param newsResourceQuery - Query parameters for the request.
      */
     operator fun invoke(
-        filterTopicIds: Set<String> = emptySet()
+        newsResourceQuery: NewsResourceQuery
     ): Flow<List<SaveableNewsResource>> =
-        if (filterTopicIds.isEmpty()) {
-            newsRepository.getNewsResources()
-        } else {
-            newsRepository.getNewsResources(filterTopicIds = filterTopicIds)
-        }.mapToSaveableNewsResources(bookmarkedNewsResources)
+        newsRepository.getNewsResources(query = newsResourceQuery)
+            .mapToSaveableNewsResources(bookmarkedNewsResources)
 }
 
 private fun Flow<List<NewsResource>>.mapToSaveableNewsResources(

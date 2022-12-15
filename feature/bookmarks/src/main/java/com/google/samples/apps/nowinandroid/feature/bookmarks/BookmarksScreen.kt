@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.grid.GridCells.Adaptive
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -54,11 +55,8 @@ import com.google.samples.apps.nowinandroid.core.designsystem.component.NiaLoadi
 import com.google.samples.apps.nowinandroid.core.designsystem.theme.NiaTheme
 import com.google.samples.apps.nowinandroid.core.domain.model.SaveableNewsResource
 import com.google.samples.apps.nowinandroid.core.model.data.previewNewsResources
-import com.google.samples.apps.nowinandroid.core.ui.NewsFeedUiState
-import com.google.samples.apps.nowinandroid.core.ui.NewsFeedUiState.Loading
-import com.google.samples.apps.nowinandroid.core.ui.NewsFeedUiState.Success
+import com.google.samples.apps.nowinandroid.core.ui.NewsItem
 import com.google.samples.apps.nowinandroid.core.ui.TrackScrollJank
-import com.google.samples.apps.nowinandroid.core.ui.newsFeed
 
 @OptIn(ExperimentalLifecycleComposeApi::class)
 @Composable
@@ -66,9 +64,9 @@ internal fun BookmarksRoute(
     modifier: Modifier = Modifier,
     viewModel: BookmarksViewModel = hiltViewModel()
 ) {
-    val feedState by viewModel.feedUiState.collectAsStateWithLifecycle()
+    val bookmarkItems by viewModel.bookmarkItems.collectAsStateWithLifecycle()
     BookmarksScreen(
-        feedState = feedState,
+        bookmarkItems = bookmarkItems,
         removeFromBookmarks = viewModel::removeFromSavedResources,
         modifier = modifier
     )
@@ -80,17 +78,17 @@ internal fun BookmarksRoute(
 @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
 @Composable
 internal fun BookmarksScreen(
-    feedState: NewsFeedUiState,
+    bookmarkItems: List<BookmarkItem>,
     removeFromBookmarks: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    when (feedState) {
-        Loading -> LoadingState(modifier)
-        is Success -> if (feedState.feed.isNotEmpty()) {
-            BookmarksGrid(feedState, removeFromBookmarks, modifier)
-        } else {
-            EmptyState(modifier)
-        }
+    when {
+        bookmarkItems.isNotEmpty() -> BookmarksGrid(
+            bookmarkItems = bookmarkItems,
+            removeFromBookmarks = removeFromBookmarks,
+            modifier = modifier
+        )
+        else -> EmptyState(modifier)
     }
 }
 
@@ -107,7 +105,7 @@ private fun LoadingState(modifier: Modifier = Modifier) {
 
 @Composable
 private fun BookmarksGrid(
-    feedState: NewsFeedUiState,
+    bookmarkItems: List<BookmarkItem>,
     removeFromBookmarks: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -123,10 +121,20 @@ private fun BookmarksGrid(
             .fillMaxSize()
             .testTag("bookmarks:feed")
     ) {
-        newsFeed(
-            feedState = feedState,
-            onNewsResourcesCheckedChanged = { id, _ -> removeFromBookmarks(id) },
+        items(
+            items = bookmarkItems,
+            key = BookmarkItem::key,
+            itemContent = { item ->
+                when (item) {
+                    BookmarkItem.Loading -> LoadingState(modifier)
+                    is BookmarkItem.News -> NewsItem(
+                        saveableNewsResource = item.saveableNewsResource,
+                        onNewsResourcesCheckedChanged = { id, _ -> removeFromBookmarks(id) }
+                    )
+                }
+            }
         )
+
         item(span = { GridItemSpan(maxLineSpan) }) {
             Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.safeDrawing))
         }
@@ -183,11 +191,9 @@ private fun LoadingStatePreview() {
 private fun BookmarksGridPreview() {
     NiaTheme {
         BookmarksGrid(
-            feedState = Success(
-                previewNewsResources.map {
-                    SaveableNewsResource(it, false)
-                }
-            ),
+            bookmarkItems = previewNewsResources.map {
+                BookmarkItem.News(SaveableNewsResource(it, false))
+            },
             removeFromBookmarks = {}
         )
     }
