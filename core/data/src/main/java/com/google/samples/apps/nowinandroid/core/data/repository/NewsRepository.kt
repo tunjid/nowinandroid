@@ -20,6 +20,12 @@ import com.google.samples.apps.nowinandroid.core.data.Syncable
 import com.google.samples.apps.nowinandroid.core.model.data.NewsResource
 import kotlinx.coroutines.flow.Flow
 
+data class NewsResourceQuery(
+    val offset: Int = 0,
+    val limit: Int,
+    val filterTopicIds: Set<String> = emptySet()
+)
+
 /**
  * Data layer implementation for [NewsResource]
  */
@@ -27,12 +33,7 @@ interface NewsRepository : Syncable {
     /**
      * Returns available news resources as a stream.
      */
-    fun getNewsResources(): Flow<List<NewsResource>>
-
-    /**
-     * Returns available news resources as a stream filtered by topics.
-     */
     fun getNewsResources(
-        filterTopicIds: Set<String> = emptySet(),
+        query: NewsResourceQuery,
     ): Flow<List<NewsResource>>
 }

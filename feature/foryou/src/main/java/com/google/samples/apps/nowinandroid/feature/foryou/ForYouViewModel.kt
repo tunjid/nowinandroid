@@ -18,22 +18,27 @@ package com.google.samples.apps.nowinandroid.feature.foryou
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.samples.apps.nowinandroid.core.data.repository.NewsResourceQuery
 import com.google.samples.apps.nowinandroid.core.data.repository.UserDataRepository
 import com.google.samples.apps.nowinandroid.core.data.util.SyncStatusMonitor
 import com.google.samples.apps.nowinandroid.core.domain.GetFollowableTopicsUseCase
 import com.google.samples.apps.nowinandroid.core.domain.GetSaveableNewsResourcesUseCase
-import com.google.samples.apps.nowinandroid.core.domain.model.SaveableNewsResource
-import com.google.samples.apps.nowinandroid.core.ui.NewsFeedUiState
+import com.tunjid.tiler.TiledList
+import com.tunjid.tiler.buildTiledList
+import com.tunjid.tiler.emptyTiledList
+import com.tunjid.tiler.filterTransform
+import com.tunjid.tiler.tiledListOf
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.scan
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -41,9 +46,18 @@ import kotlinx.coroutines.launch
 class ForYouViewModel @Inject constructor(
     syncStatusMonitor: SyncStatusMonitor,
     private val userDataRepository: UserDataRepository,
-    private val getSaveableNewsResources: GetSaveableNewsResourcesUseCase,
+    getSaveableNewsResources: GetSaveableNewsResourcesUseCase,
     getFollowableTopics: GetFollowableTopicsUseCase
 ) : ViewModel() {
+
+    private val scrollPositionQueries = MutableStateFlow(
+        NewsResourceQuery(
+            offset = 0,
+            limit = ITEMS_PER_QUERY
+        )
+    )
+
+    private val maxGridSpans = MutableStateFlow(1)
 
     private val shouldShowOnboarding: Flow<Boolean> =
         userDataRepository.userData.map { !it.shouldHideOnboarding }
@@ -55,47 +69,79 @@ class ForYouViewModel @Inject constructor(
             initialValue = false
         )
 
-    val feedState: StateFlow<NewsFeedUiState> =
-        userDataRepository.userData
-            .map { userData ->
-                // If the user hasn't completed the onboarding and hasn't selected any interests
-                // show an empty news list to clearly demonstrate that their selections affect the
-                // news articles they will see.
-                if (!userData.shouldHideOnboarding &&
-                    userData.followedTopics.isEmpty()
-                ) {
-                    flowOf(NewsFeedUiState.Success(emptyList()))
-                } else {
-                    getSaveableNewsResources(
-                        filterTopicIds = userData.followedTopics
-                    ).mapToFeedState()
-                }
-            }
-            // Flatten the feed flows.
-            // As the selected topics and topic state changes, this will cancel the old feed
-            // monitoring and start the new one.
-            .flatMapLatest { it }
-            .stateIn(
-                scope = viewModelScope,
-                started = SharingStarted.WhileSubscribed(5_000),
-                initialValue = NewsFeedUiState.Loading
-            )
-
-    val onboardingUiState: StateFlow<OnboardingUiState> =
+    private val onboardingContent =
         combine(
             shouldShowOnboarding,
             getFollowableTopics()
         ) { shouldShowOnboarding, topics ->
-            if (shouldShowOnboarding) {
-                OnboardingUiState.Shown(topics = topics)
-            } else {
-                OnboardingUiState.NotShown
+            if (shouldShowOnboarding) OnboardingUiState.Shown(topics = topics)
+            else OnboardingUiState.NotShown
+        }
+            .onStart {
+                emit(OnboardingUiState.Loading)
+            }
+            .map {
+                // Add onboarding item if it should show
+                ForYouItemContent(
+                    onboardingItems = if (it is OnboardingUiState.NotShown) emptyTiledList()
+                    else tiledListOf(scrollPositionQueries.value to ForYouItem.OnBoarding(it)),
+                )
+            }
+
+    private val newsContent = tiledForYouItems(
+        gridSpans = maxGridSpans,
+        scrollPositionQueries = scrollPositionQueries,
+        userDataRepository = userDataRepository,
+        getSaveableNewsResourcesUseCase = getSaveableNewsResources
+    )
+        .map { tiledNewsItems ->
+            // These are at most MAX_ITEMS_IN_UI present, making this a very cheap operation
+            ForYouItemContent(
+                newsItems = tiledNewsItems
+                    // Make items distinct by key as duplicates may across queries exist when new
+                    // items are written to the db and flows are updated
+                    .filterTransform { distinctBy(ForYouItem::key) },
+            )
+        }
+
+    private val forYouItemContent = merge(
+        onboardingContent,
+        newsContent
+    )
+        .scan(
+            ForYouItemContent(
+                onboardingItems = tiledListOf(
+                    scrollPositionQueries.value to ForYouItem.OnBoarding(OnboardingUiState.Loading)
+                ),
+                newsItems = tiledListOf(
+                    scrollPositionQueries.value to ForYouItem.News.Loading
+                )
+            )
+        ) { old, new ->
+            old.copy(
+                onboardingItems = new.onboardingItems ?: old.onboardingItems,
+                newsItems = new.newsItems ?: old.newsItems
+            )
+        }
+
+    val forYouItems: StateFlow<TiledList<NewsResourceQuery, ForYouItem>> =
+        forYouItemContent.map { (onboardingItems, newsItems) ->
+            buildTiledList {
+                onboardingItems?.forEachIndexed { index, forYouItem ->
+                    add(onboardingItems.queryAt(index), forYouItem)
+                }
+                newsItems?.forEachIndexed { index, forYouItem ->
+                    add(newsItems.queryAt(index), forYouItem)
+                }
             }
         }
             .stateIn(
                 scope = viewModelScope,
                 started = SharingStarted.WhileSubscribed(5_000),
-                initialValue = OnboardingUiState.Loading
+                initialValue = tiledListOf(
+                    scrollPositionQueries.value to ForYouItem.OnBoarding(OnboardingUiState.Loading),
+                    scrollPositionQueries.value to ForYouItem.News.Loading,
+                )
             )
 
     fun updateTopicSelection(topicId: String, isChecked: Boolean) {
@@ -115,8 +161,17 @@ class ForYouViewModel @Inject constructor(
             userDataRepository.setShouldHideOnboarding(true)
         }
     }
+
+    fun onVisibleQueryChanged(query: NewsResourceQuery) {
+        scrollPositionQueries.value = query
+    }
+
+    fun onGridSpanChanged(maxItemSpan: Int) {
+        maxGridSpans.value = maxItemSpan
+    }
 }
 
-private fun Flow<List<SaveableNewsResource>>.mapToFeedState(): Flow<NewsFeedUiState> =
-    map<List<SaveableNewsResource>, NewsFeedUiState>(NewsFeedUiState::Success)
-        .onStart { emit(NewsFeedUiState.Loading) }
+private data class ForYouItemContent(
+    val onboardingItems: TiledList<NewsResourceQuery, ForYouItem>? = null,
+    val newsItems: TiledList<NewsResourceQuery, ForYouItem>? = null
+)

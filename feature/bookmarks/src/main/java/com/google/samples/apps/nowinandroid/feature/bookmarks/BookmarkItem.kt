@@ -13,20 +13,24 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-plugins {
-    id("nowinandroid.android.feature")
-    id("nowinandroid.android.library.compose")
-    id("nowinandroid.android.library.jacoco")
+
+package com.google.samples.apps.nowinandroid.feature.bookmarks
+
+import com.google.samples.apps.nowinandroid.core.domain.model.SaveableNewsResource
+import com.google.samples.apps.nowinandroid.feature.bookmarks.BookmarkItem.Loading
+import com.google.samples.apps.nowinandroid.feature.bookmarks.BookmarkItem.News
+
+sealed class BookmarkItem {
+
+    object Loading : BookmarkItem()
+
+    data class News(
+        val saveableNewsResource: SaveableNewsResource
+    ) : BookmarkItem()
 }
 
-android {
-    namespace = "com.google.samples.apps.nowinandroid.feature.foryou"
-}
-
-dependencies {
-    implementation(libs.kotlinx.datetime)
-
-    implementation(libs.accompanist.flowlayout)
-
-    implementation(libs.tunjid.tiler)
-}
+val BookmarkItem.key: String
+    get() = when (this) {
+        Loading -> "loading"
+        is News -> saveableNewsResource.newsResource.id
+    }

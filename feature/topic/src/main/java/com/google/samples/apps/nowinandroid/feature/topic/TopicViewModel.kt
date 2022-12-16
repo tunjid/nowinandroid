@@ -19,6 +19,7 @@ package com.google.samples.apps.nowinandroid.feature.topic
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.samples.apps.nowinandroid.core.data.repository.NewsResourceQuery
 import com.google.samples.apps.nowinandroid.core.data.repository.TopicsRepository
 import com.google.samples.apps.nowinandroid.core.data.repository.UserDataRepository
 import com.google.samples.apps.nowinandroid.core.decoder.StringDecoder
@@ -135,8 +136,13 @@ private fun newsUiState(
     userDataRepository: UserDataRepository,
 ): Flow<NewsUiState> {
     // Observe news
+    // TODO: Load this in tiles
     val news: Flow<List<SaveableNewsResource>> = getSaveableNewsResources(
-        filterTopicIds = setOf(element = topicId),
+        NewsResourceQuery(
+            offset = 0,
+            limit = Int.MAX_VALUE,
+            filterTopicIds = setOf(element = topicId)
+        ),
     )
 
     // Observe bookmarks

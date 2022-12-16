@@ -33,7 +33,6 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import com.google.samples.apps.nowinandroid.core.domain.model.SaveableNewsResource
 import com.google.samples.apps.nowinandroid.core.model.data.previewNewsResources
-import com.google.samples.apps.nowinandroid.core.ui.NewsFeedUiState
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import org.junit.Rule
@@ -51,7 +50,7 @@ class BookmarksScreenTest {
     fun loading_showsLoadingSpinner() {
         composeTestRule.setContent {
             BookmarksScreen(
-                feedState = NewsFeedUiState.Loading,
+                bookmarkItems = listOf(BookmarkItem.Loading),
                 removeFromBookmarks = { }
             )
         }
@@ -69,10 +68,11 @@ class BookmarksScreenTest {
 
         composeTestRule.setContent {
             BookmarksScreen(
-                feedState = NewsFeedUiState.Success(
-                    previewNewsResources.take(2)
-                        .map { SaveableNewsResource(it, true) }
-                ),
+                bookmarkItems = previewNewsResources
+                    .take(2)
+                    .map {
+                        BookmarkItem.News(SaveableNewsResource(it, true))
+                    },
                 removeFromBookmarks = { }
             )
         }
@@ -108,10 +108,11 @@ class BookmarksScreenTest {
 
         composeTestRule.setContent {
             BookmarksScreen(
-                feedState = NewsFeedUiState.Success(
-                    previewNewsResources.take(2)
-                        .map { SaveableNewsResource(it, true) }
-                ),
+                bookmarkItems = previewNewsResources
+                    .take(2)
+                    .map {
+                        BookmarkItem.News(SaveableNewsResource(it, true))
+                    },
                 removeFromBookmarks = { newsResourceId ->
                     assertEquals(previewNewsResources[0].id, newsResourceId)
                     removeFromBookmarksCalled = true

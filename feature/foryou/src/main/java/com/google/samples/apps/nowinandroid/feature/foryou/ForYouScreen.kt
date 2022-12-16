@@ -22,6 +22,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -43,7 +44,7 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridCells.Adaptive
 import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyGridScope
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyHorizontalGrid
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -58,6 +59,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ColorFilter
@@ -77,19 +79,19 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.ExperimentalLifecycleComposeApi
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import com.google.samples.apps.nowinandroid.core.data.repository.NewsResourceQuery
 import com.google.samples.apps.nowinandroid.core.designsystem.component.NiaButton
 import com.google.samples.apps.nowinandroid.core.designsystem.component.NiaIconToggleButton
 import com.google.samples.apps.nowinandroid.core.designsystem.component.NiaOverlayLoadingWheel
 import com.google.samples.apps.nowinandroid.core.designsystem.icon.NiaIcons
 import com.google.samples.apps.nowinandroid.core.designsystem.theme.NiaTheme
-import com.google.samples.apps.nowinandroid.core.domain.model.FollowableTopic
-import com.google.samples.apps.nowinandroid.core.domain.model.SaveableNewsResource
-import com.google.samples.apps.nowinandroid.core.model.data.previewNewsResources
-import com.google.samples.apps.nowinandroid.core.model.data.previewTopics
 import com.google.samples.apps.nowinandroid.core.ui.DevicePreviews
-import com.google.samples.apps.nowinandroid.core.ui.NewsFeedUiState
+import com.google.samples.apps.nowinandroid.core.ui.NewsItem
 import com.google.samples.apps.nowinandroid.core.ui.TrackScrollJank
-import com.google.samples.apps.nowinandroid.core.ui.newsFeed
+import com.tunjid.tiler.TiledList
+import com.tunjid.tiler.queryAtOrNull
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
 
 @OptIn(ExperimentalLifecycleComposeApi::class)
 @Composable
@@ -97,33 +99,46 @@ internal fun ForYouRoute(
     modifier: Modifier = Modifier,
     viewModel: ForYouViewModel = hiltViewModel()
 ) {
-    val onboardingUiState by viewModel.onboardingUiState.collectAsStateWithLifecycle()
-    val feedState by viewModel.feedState.collectAsStateWithLifecycle()
     val isSyncing by viewModel.isSyncing.collectAsStateWithLifecycle()
+    val forYouItems by viewModel.forYouItems.collectAsStateWithLifecycle()
+    val lazyGridState = rememberLazyGridState()
 
     ForYouScreen(
         isSyncing = isSyncing,
-        onboardingUiState = onboardingUiState,
-        feedState = feedState,
+        forYouItems = forYouItems,
+        lazyGridState = lazyGridState,
         onTopicCheckedChanged = viewModel::updateTopicSelection,
+        onGridSpanChanged = viewModel::onGridSpanChanged,
         saveFollowedTopics = viewModel::dismissOnboarding,
         onNewsResourcesCheckedChanged = viewModel::updateNewsResourceSaved,
         modifier = modifier
     )
+
+    TiledPaging(
+        gridState = lazyGridState,
+        tiledForYouItems = forYouItems,
+        onVisibleQueryChanged = viewModel::onVisibleQueryChanged,
+    )
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun ForYouScreen(
     isSyncing: Boolean,
-    onboardingUiState: OnboardingUiState,
-    feedState: NewsFeedUiState,
+    forYouItems: List<ForYouItem>,
     onTopicCheckedChanged: (String, Boolean) -> Unit,
+    onGridSpanChanged: (Int) -> Unit,
     saveFollowedTopics: () -> Unit,
     onNewsResourcesCheckedChanged: (String, Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    lazyGridState: LazyGridState = rememberLazyGridState(),
 ) {
-    val isOnboardingLoading = onboardingUiState is OnboardingUiState.Loading
-    val isFeedLoading = feedState is NewsFeedUiState.Loading
+    val isOnboardingLoading = forYouItems.any {
+        it is ForYouItem.OnBoarding && it.onboardingUiState is OnboardingUiState.Loading
+    }
+    val isFeedLoading = forYouItems.any {
+        it is ForYouItem.News.Loading
+    }
 
     // Workaround to call Activity.reportFullyDrawn from Jetpack Compose.
     // This code should be called when the UI is ready for use
@@ -143,8 +158,7 @@ internal fun ForYouScreen(
         }
     }
 
-    val state = rememberLazyGridState()
-    TrackScrollJank(scrollableState = state, stateName = "forYou:feed")
+    TrackScrollJank(scrollableState = lazyGridState, stateName = "forYou:feed")
 
     LazyVerticalGrid(
         columns = Adaptive(300.dp),
@@ -154,39 +168,54 @@ internal fun ForYouScreen(
         modifier = modifier
             .fillMaxSize()
             .testTag("forYou:feed"),
-        state = state
+        state = lazyGridState
     ) {
-        onboarding(
-            onboardingUiState = onboardingUiState,
-            onTopicCheckedChanged = onTopicCheckedChanged,
-            saveFollowedTopics = saveFollowedTopics,
-            // Custom LayoutModifier to remove the enforced parent 16.dp contentPadding
-            // from the LazyVerticalGrid and enable edge-to-edge scrolling for this section
-            interestsItemModifier = Modifier.layout { measurable, constraints ->
-                val placeable = measurable.measure(
-                    constraints.copy(
-                        maxWidth = constraints.maxWidth + 32.dp.roundToPx()
+        items(
+            items = forYouItems,
+            key = { it.key },
+            span = { item ->
+                onGridSpanChanged(maxLineSpan)
+                when (item) {
+                    is ForYouItem.OnBoarding -> GridItemSpan(maxLineSpan)
+                    is ForYouItem.News -> GridItemSpan(1)
+                }
+            },
+            itemContent = { item ->
+                when (item) {
+                    is ForYouItem.News -> when (item) {
+                        is ForYouItem.News.Loading -> Unit
+                        is ForYouItem.News.Loaded -> NewsItem(
+                            modifier = Modifier.animateItemPlacement(),
+                            saveableNewsResource = item.saveableNewsResource,
+                            onNewsResourcesCheckedChanged = onNewsResourcesCheckedChanged,
+                        )
+                    }
+                    is ForYouItem.OnBoarding -> OnboardingItem(
+                        onboardingUiState = item.onboardingUiState,
+                        onTopicCheckedChanged = onTopicCheckedChanged,
+                        saveFollowedTopics = saveFollowedTopics,
+                        // Custom LayoutModifier to remove the enforced parent 16.dp contentPadding
+                        // from the LazyVerticalGrid and enable edge-to-edge scrolling for this section
+                        interestsItemModifier = Modifier
+                            .layout { measurable, constraints ->
+                                val placeable = measurable.measure(
+                                    constraints.copy(
+                                        maxWidth = constraints.maxWidth + 32.dp.roundToPx()
+                                    )
+                                )
+                                layout(placeable.width, placeable.height) {
+                                    placeable.place(0, 0)
+                                }
+                            }
+                            .animateItemPlacement()
                     )
-                )
-                layout(placeable.width, placeable.height) {
-                    placeable.place(0, 0)
                 }
             }
         )
-
-        newsFeed(
-            feedState = feedState,
-            onNewsResourcesCheckedChanged = onNewsResourcesCheckedChanged,
-        )
-
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            Column {
-                Spacer(modifier = Modifier.height(8.dp))
-                // Add space for the content to clear the "offline" snackbar.
-                // TODO: Check that the Scaffold handles this correctly in NiaApp
-                // if (isOffline) Spacer(modifier = Modifier.height(48.dp))
-                Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.safeDrawing))
-            }
+        item {
+            SpacerItem(
+                modifier = Modifier.animateItemPlacement(),
+            )
         }
     }
     AnimatedVisibility(
@@ -217,7 +246,8 @@ internal fun ForYouScreen(
  * Depending on the [onboardingUiState], this might emit no items.
  *
  */
-private fun LazyGridScope.onboarding(
+@Composable
+fun OnboardingItem(
     onboardingUiState: OnboardingUiState,
     onTopicCheckedChanged: (String, Boolean) -> Unit,
     saveFollowedTopics: () -> Unit,
@@ -229,49 +259,58 @@ private fun LazyGridScope.onboarding(
         OnboardingUiState.NotShown -> Unit
 
         is OnboardingUiState.Shown -> {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Column(modifier = interestsItemModifier) {
-                    Text(
-                        text = stringResource(R.string.onboarding_guidance_title),
-                        textAlign = TextAlign.Center,
+            Column(modifier = interestsItemModifier) {
+                Text(
+                    text = stringResource(R.string.onboarding_guidance_title),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 24.dp),
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Text(
+                    text = stringResource(R.string.onboarding_guidance_subtitle),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp, start = 16.dp, end = 16.dp),
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                TopicSelection(
+                    onboardingUiState,
+                    onTopicCheckedChanged,
+                    Modifier.padding(bottom = 8.dp)
+                )
+                // Done button
+                Row(
+                    horizontalArrangement = Arrangement.Center,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    NiaButton(
+                        onClick = saveFollowedTopics,
+                        enabled = onboardingUiState.isDismissable,
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 24.dp),
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Text(
-                        text = stringResource(R.string.onboarding_guidance_subtitle),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp, start = 16.dp, end = 16.dp),
-                        textAlign = TextAlign.Center,
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    TopicSelection(
-                        onboardingUiState,
-                        onTopicCheckedChanged,
-                        Modifier.padding(bottom = 8.dp)
-                    )
-                    // Done button
-                    Row(
-                        horizontalArrangement = Arrangement.Center,
-                        modifier = Modifier.fillMaxWidth()
+                            .padding(horizontal = 40.dp)
+                            .width(364.dp)
                     ) {
-                        NiaButton(
-                            onClick = saveFollowedTopics,
-                            enabled = onboardingUiState.isDismissable,
-                            modifier = Modifier
-                                .padding(horizontal = 40.dp)
-                                .width(364.dp)
-                        ) {
-                            Text(
-                                text = stringResource(R.string.done)
-                            )
-                        }
+                        Text(
+                            text = stringResource(R.string.done)
+                        )
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SpacerItem(modifier: Modifier = Modifier) {
+    Column(modifier = modifier) {
+        Spacer(modifier = Modifier.height(8.dp))
+        // Add space for the content to clear the "offline" snackbar.
+        // TODO: Check that the Scaffold handles this correctly in NiaApp
+        // if (isOffline) Spacer(modifier = Modifier.height(48.dp))
+        Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.safeDrawing))
     }
 }
 
@@ -387,6 +426,26 @@ fun TopicIcon(
     )
 }
 
+@Composable
+private fun TiledPaging(
+    gridState: LazyGridState,
+    tiledForYouItems: TiledList<NewsResourceQuery, ForYouItem>,
+    onVisibleQueryChanged: (NewsResourceQuery) -> Unit
+) {
+    LaunchedEffect(tiledForYouItems, gridState) {
+        snapshotFlow {
+            val visibleItems = gridState.layoutInfo.visibleItemsInfo
+            val firstItemInfo = visibleItems.firstOrNull { it.key.isNewsResourceKey() }
+            firstItemInfo?.index?.let(tiledForYouItems::queryAtOrNull)
+        }
+            .filterNotNull()
+            .distinctUntilChanged()
+            .collect { query ->
+                onVisibleQueryChanged(query)
+            }
+    }
+}
+
 @DevicePreviews
 @Composable
 fun ForYouScreenPopulatedFeed() {
@@ -394,13 +453,9 @@ fun ForYouScreenPopulatedFeed() {
         NiaTheme {
             ForYouScreen(
                 isSyncing = false,
-                onboardingUiState = OnboardingUiState.NotShown,
-                feedState = NewsFeedUiState.Success(
-                    feed = previewNewsResources.map {
-                        SaveableNewsResource(it, false)
-                    }
-                ),
+                forYouItems = emptyList(),
                 onTopicCheckedChanged = { _, _ -> },
+                onGridSpanChanged = {},
                 saveFollowedTopics = {},
                 onNewsResourcesCheckedChanged = { _, _ -> }
             )
@@ -415,13 +470,9 @@ fun ForYouScreenOfflinePopulatedFeed() {
         NiaTheme {
             ForYouScreen(
                 isSyncing = false,
-                onboardingUiState = OnboardingUiState.NotShown,
-                feedState = NewsFeedUiState.Success(
-                    feed = previewNewsResources.map {
-                        SaveableNewsResource(it, false)
-                    }
-                ),
+                forYouItems = emptyList(),
                 onTopicCheckedChanged = { _, _ -> },
+                onGridSpanChanged = {},
                 saveFollowedTopics = {},
                 onNewsResourcesCheckedChanged = { _, _ -> }
             )
@@ -436,15 +487,9 @@ fun ForYouScreenTopicSelection() {
         NiaTheme {
             ForYouScreen(
                 isSyncing = false,
-                onboardingUiState = OnboardingUiState.Shown(
-                    topics = previewTopics.map { FollowableTopic(it, false) },
-                ),
-                feedState = NewsFeedUiState.Success(
-                    feed = previewNewsResources.map {
-                        SaveableNewsResource(it, false)
-                    }
-                ),
+                forYouItems = emptyList(),
                 onTopicCheckedChanged = { _, _ -> },
+                onGridSpanChanged = {},
                 saveFollowedTopics = {},
                 onNewsResourcesCheckedChanged = { _, _ -> }
             )
@@ -459,9 +504,9 @@ fun ForYouScreenLoading() {
         NiaTheme {
             ForYouScreen(
                 isSyncing = false,
-                onboardingUiState = OnboardingUiState.Loading,
-                feedState = NewsFeedUiState.Loading,
+                forYouItems = emptyList(),
                 onTopicCheckedChanged = { _, _ -> },
+                onGridSpanChanged = {},
                 saveFollowedTopics = {},
                 onNewsResourcesCheckedChanged = { _, _ -> }
             )
@@ -476,13 +521,9 @@ fun ForYouScreenPopulatedAndLoading() {
         NiaTheme {
             ForYouScreen(
                 isSyncing = true,
-                onboardingUiState = OnboardingUiState.Loading,
-                feedState = NewsFeedUiState.Success(
-                    feed = previewNewsResources.map {
-                        SaveableNewsResource(it, false)
-                    }
-                ),
+                forYouItems = emptyList(),
                 onTopicCheckedChanged = { _, _ -> },
+                onGridSpanChanged = {},
                 saveFollowedTopics = {},
                 onNewsResourcesCheckedChanged = { _, _ -> }
             )
